@@ -16,7 +16,8 @@ mod tests {
         let _res = parse("(1 + 1) * 3").unwrap().calculate(); // 6
 
         assert_eq!(parse("10/5").unwrap().calculate(), 2.0);
-        assert_eq!(parse("1 + 1 * 3").unwrap().calculate(), 4.0);
+        assert_eq!(parse("1_000_000").unwrap().calculate(), 1_000_000.0);
+        assert_eq!(parse("1_000_000 - 500_000").unwrap().calculate(), 500_000.0);
         assert_eq!(parse("(1 + 1) * 3").unwrap().calculate(), 6.0);
         assert_eq!(parse("2^10").unwrap().calculate(), 1024.0);
         assert_eq!(parse("10*1.5").unwrap().calculate(), 15.0);
@@ -64,6 +65,7 @@ pub enum GrammarItem {
     Power,
     Product,
     Sum,
+    Minus,
     Number(f64),
     Paren
 }
@@ -112,6 +114,14 @@ impl ParseNode {
                 }
                 first
             },
+            GrammarItem::Minus=> {
+                self.children.reverse();
+                let mut first = self.children.pop().expect("expect children in minus node").calculate();
+                while let Some(mut next) = self.children.pop() {
+                    first -= next.calculate();
+                }
+                first
+            },
             GrammarItem::Number(val) => {
                 val
             },
@@ -120,10 +130,7 @@ impl ParseNode {
                 first.calculate()
             }
         }
-
-
     }
-
 }
 
 #[derive(Debug, Clone)]
@@ -139,12 +146,12 @@ fn lex(input: &str) -> Result<Vec<LexItem>, String> {
     let mut it = input.chars().peekable();
     while let Some(&c) = it.peek() {
         match c {
-            '0'..='9' | '.' => {
+            '0'..='9' | '.' | '_' => {
                 it.next();
                 let n = peek_number(c, &mut it);
                 result.push(LexItem::Num(n));
             }
-            '+' | '*'| '/'| '^' => {
+            '+' | '-' | '*'| '/'| '^' => {
                 result.push(LexItem::Op(c));
                 it.next();
             }
@@ -172,6 +179,7 @@ fn peek_number<T: Iterator<Item = char>>(c: char, iter: &mut Peekable<T>) -> f64
     let mut number = c.to_string();
     while let Some(Some(digit)) = iter.peek().map(|c| {
         match c {
+            '_' => Some("".to_string()),
             '0'..='9' | '.' => Some(c.to_string()),
             _ => None,
         }
@@ -201,10 +209,15 @@ fn parse_expr(tokens: &Vec<LexItem>, pos: usize) -> Result<(ParseNode, usize), S
     let (node_summand, next_pos) = parse_summand(tokens, pos)?;
     let c = tokens.get(next_pos);
     match c {
-        Some(&LexItem::Op('+')) => {
+        Some(&LexItem::Op(c @ '+')) | Some(&LexItem::Op(c @ '-')) => {
             // recurse on the expr
             let mut sum = ParseNode::new();
-            sum.entry = GrammarItem::Sum;
+            sum.entry = if c == '+' {
+                GrammarItem::Sum
+            }else{
+                GrammarItem::Minus
+            };
+
             sum.children.push(node_summand);
             let (rhs, i) = parse_expr(tokens, next_pos + 1)?;
             sum.children.push(rhs);
